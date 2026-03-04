@@ -1260,11 +1260,25 @@ def render_sheet_as_html(wave: str, question: str) -> str:
             file_sheets = get_wave_sheet_map().get(key, {})
             return _toc_html(wave, question, file_sheets)
         fpath, sheet = entry[0], entry[1]
-        # Skip disk cache for overridden questions — disk may have stale HTML
-        # from a previous incorrect match. Always render from the correct source.
+        # Overrides specify an exact (file, sheet) pair — disk cache is safe to use.
+        disk_html = _load_html_from_disk(key, sheet)
+        if disk_html is not None:
+            _html_cache[cache_key] = disk_html
+            return disk_html
         html = (_render_xlsx(fpath, sheet, wave, None) if fpath.lower().endswith('.xlsx')
                 else _render_xls(fpath, sheet, wave, None))
         _html_cache[cache_key] = html
+        _save_html_to_disk(key, sheet, html)
+        # Background: render remaining sheets from the same file
+        file_sheets = get_wave_sheet_map().get(key, {})
+        all_sheets = file_sheets.get(fpath, [])
+        if len(all_sheets) > 1:
+            t = threading.Thread(
+                target=_background_render_file,
+                args=(fpath, key, all_sheets),
+                daemon=True,
+            )
+            t.start()
         return html
 
     file_sheets = get_wave_sheet_map().get(key, {})
