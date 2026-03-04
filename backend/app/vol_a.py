@@ -1270,6 +1270,18 @@ def render_sheet_as_html(wave: str, question: str) -> str:
     file_sheets = get_wave_sheet_map().get(key, {})
 
     if not file_sheets:
+        # Wave not in sheet map (cache may be stale). Fall back to overrides TOC.
+        wave_ov = _overrides.get(key, {})
+        if wave_ov:
+            synth = {}
+            for _qn, _entry in wave_ov.items():
+                if _entry and isinstance(_entry, (list, tuple)) and len(_entry) >= 2:
+                    _fp, _sn = _entry[0], _entry[1]
+                    synth.setdefault(_fp, [])
+                    if _sn not in synth[_fp]:
+                        synth[_fp].append(_sn)
+            if synth:
+                return _toc_html(wave, question, synth)
         return _error_html(
             f"Volume A file is not yet available for wave {wave}."
         )
