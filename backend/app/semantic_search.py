@@ -85,6 +85,9 @@ def _load_model():
 
 def is_model_ready():
     """Return True once the model and index are fully loaded."""
+    if HF_API_TOKEN:
+        # Using HF Inference API — no local model to load; ready once index is loaded
+        return _INDEX_CACHE is not None
     return _model_ready and _INDEX_CACHE is not None
 
 

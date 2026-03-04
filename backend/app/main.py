@@ -87,16 +87,19 @@ def _warmup_vola():
 
 
 def _warmup_semantic():
-    """Pre-load the embedding index from disk (fast, no model required).
-    The model itself loads lazily on the first semantic search request."""
-    from semantic_search import _load_term_cache, _build_index
+    """Pre-load the embedding index from disk and pre-warm the encoding pipeline."""
+    from semantic_search import _load_term_cache, _build_index, _encode_texts, _get_full_vocab, HF_API_TOKEN
     from data_store import get_conn
     try:
         _load_term_cache()
         _build_index(get_conn)
-        print("[semantic] Index ready.", flush=True)
+        # Pre-warm the encoding pipeline (tests HF API or loads local model)
+        _encode_texts(["warmup"])
+        # Pre-build vocab matrix used by get_related_terms (encodes ~80 supplementary terms)
+        _get_full_vocab()
+        print("[semantic] Index and model ready.", flush=True)
     except Exception as e:
-        print(f"[semantic] Warmup error: {e}", flush=True)
+        print(f"[semantic] Warmup error: {type(e).__name__}: {e}", flush=True)
 
 
 @app.on_event("startup")
