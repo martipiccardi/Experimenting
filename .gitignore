@@ -3,3 +3,11 @@ __pycache__/
 *.pyc
 .env
 build_index_backup.py
+
+# Vol A files before EB93.1 (too large for git, stored separately)
+data/vol_a/EB6*.xl*
+data/vol_a/EB7*.xl*
+data/vol_a/EB8*.xl*
+data/vol_a/EB90*.xl*
+data/vol_a/EB91*.xl*
+data/vol_a/EB92*.xl*
