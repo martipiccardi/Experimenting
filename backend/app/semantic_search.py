@@ -91,30 +91,20 @@ def is_model_ready():
     return _model_ready and _INDEX_CACHE is not None
 
 
-# Only 1 concurrent HF API call at a time — prevents thread-pool exhaustion
-# when many uncached queries arrive simultaneously after a restart.
-_HF_SEMAPHORE = threading.Semaphore(1)
-
 def _hf_api_encode(texts):
     """Call HuggingFace Inference API to get embeddings. Returns normalized np.float32 array."""
     import requests
-    acquired = _HF_SEMAPHORE.acquire(timeout=5)
-    if not acquired:
-        raise RuntimeError("HF API busy — too many concurrent requests")
-    try:
-        resp = requests.post(
-            _HF_API_URL,
-            headers={"Authorization": f"Bearer {HF_API_TOKEN}"},
-            json={"inputs": texts, "options": {"wait_for_model": True}},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        vecs = np.array(resp.json(), dtype=np.float32)
-        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-        norms[norms == 0] = 1
-        return vecs / norms
-    finally:
-        _HF_SEMAPHORE.release()
+    resp = requests.post(
+        _HF_API_URL,
+        headers={"Authorization": f"Bearer {HF_API_TOKEN}"},
+        json={"inputs": texts, "options": {"wait_for_model": True}},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    vecs = np.array(resp.json(), dtype=np.float32)
+    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    return vecs / norms
 
 
 _QUERY_ALIASES = {
