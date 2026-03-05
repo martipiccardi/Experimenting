@@ -15,7 +15,7 @@ source "$VENV/bin/activate"
 # Install core deps (always needed)
 if ! python -c "import fastapi" 2>/dev/null; then
     echo "Installing core dependencies..."
-    pip install --no-cache-dir pandas==2.2.2 openpyxl==3.1.5 xlrd==2.0.1 duckdb==1.0.0 pyarrow==17.0.0 fastapi==0.115.0 "uvicorn[standard]==0.30.6" numpy
+    pip install --no-cache-dir pandas==2.2.2 openpyxl==3.1.5 xlrd==2.0.1 duckdb==1.0.0 pyarrow==17.0.0 fastapi==0.115.0 "uvicorn[standard]==0.30.6" numpy requests
 fi
 
 # Only install torch + sentence-transformers if NOT using HF API
