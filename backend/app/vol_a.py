@@ -1901,6 +1901,7 @@ def _build_html(table_rows, wave, question, filename):
 <head>
   <meta charset="utf-8"/>
   <title>Volume A — Wave {_esc(wave)} / {_esc(question)}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <style>
     body {{
       font-family: Arial, sans-serif;
@@ -1915,14 +1916,119 @@ def _build_html(table_rows, wave, question, filename):
     table {{ border-collapse: collapse; }}
     td {{ vertical-align: top; white-space: pre-wrap; word-break: break-word; }}
     td[rowspan] {{ vertical-align: middle; }}
+    .toggle-bar {{ margin-bottom: 12px; display: flex; gap: 8px; }}
+    .toggle-bar button {{
+      padding: 5px 16px; border: 1px solid #2c5f8a; border-radius: 4px;
+      background: #fff; color: #2c5f8a; cursor: pointer; font-size: 11px;
+    }}
+    .toggle-bar button.active {{
+      background: #2c5f8a; color: #fff;
+    }}
+    #chart-wrap {{ display: none; max-width: 900px; }}
   </style>
 </head>
 <body>
   <h2>Volume A — Wave {_esc(wave)}, Question {_esc(question)}</h2>
   <p class="meta">Source: {_esc(filename)}</p>
-  <div class="scroll-wrap">
-    <table>{table_rows}</table>
+  <div class="toggle-bar">
+    <button class="active" onclick="showTable()">Table</button>
+    <button onclick="showChart()">Chart (EU27)</button>
   </div>
+  <div id="table-wrap">
+    <div class="scroll-wrap">
+      <table id="vola-table">{table_rows}</table>
+    </div>
+  </div>
+  <div id="chart-wrap">
+    <canvas id="vola-chart"></canvas>
+  </div>
+  <script>
+    var _chart = null;
+
+    function showTable() {{
+      document.getElementById('table-wrap').style.display = '';
+      document.getElementById('chart-wrap').style.display = 'none';
+      document.querySelectorAll('.toggle-bar button')[0].classList.add('active');
+      document.querySelectorAll('.toggle-bar button')[1].classList.remove('active');
+    }}
+
+    function showChart() {{
+      document.getElementById('table-wrap').style.display = 'none';
+      document.getElementById('chart-wrap').style.display = '';
+      document.querySelectorAll('.toggle-bar button')[0].classList.remove('active');
+      document.querySelectorAll('.toggle-bar button')[1].classList.add('active');
+      if (!_chart) _chart = buildChart();
+    }}
+
+    function buildChart() {{
+      var table = document.getElementById('vola-table');
+      if (!table) return null;
+      var rows = Array.from(table.querySelectorAll('tr'));
+
+      // Find header row containing EU27
+      var eu27Idx = -1;
+      var headerRow = null;
+      for (var i = 0; i < rows.length; i++) {{
+        var cells = Array.from(rows[i].querySelectorAll('td'));
+        var texts = cells.map(function(c) {{ return c.textContent.trim(); }});
+        var idx = texts.findIndex(function(t) {{ return /EU\s*27|UE\s*27/i.test(t); }});
+        if (idx !== -1) {{ eu27Idx = idx; headerRow = i; break; }}
+      }}
+      if (eu27Idx === -1) {{
+        document.getElementById('chart-wrap').innerHTML = '<p style="color:#888">No EU27 column found in this table.</p>';
+        return null;
+      }}
+
+      var labels = [], values = [], colors = [];
+      var palette = ['#2c5f8a','#3d7ab5','#5a9fd4','#7db8e8','#a0cff5',
+                     '#e07b3f','#c0392b','#27ae60','#8e44ad','#f39c12'];
+      var pIdx = 0;
+
+      for (var r = headerRow + 1; r < rows.length; r++) {{
+        var cells = Array.from(rows[r].querySelectorAll('td'));
+        if (cells.length <= eu27Idx) continue;
+        var label = cells[0] ? cells[0].textContent.trim() : '';
+        var raw = cells[eu27Idx] ? cells[eu27Idx].textContent.trim() : '';
+        if (!label || !raw || raw === '-') continue;
+        // French characters heuristic — skip French rows
+        if (/[àâäéèêëîïôùûüçœæÉÈÊËÀÂÄÎÔÙÛÜÇ]/i.test(label)) continue;
+        var val = parseFloat(raw);
+        if (isNaN(val) || val < 0 || val > 1) continue;
+        // Skip "Total" aggregates
+        if (/^total/i.test(label)) continue;
+        labels.push(label);
+        values.push(Math.round(val * 100));
+        colors.push(palette[pIdx % palette.length]);
+        pIdx++;
+      }}
+
+      if (labels.length === 0) {{
+        document.getElementById('chart-wrap').innerHTML = '<p style="color:#888">Could not extract chart data from this table.</p>';
+        return null;
+      }}
+
+      var ctx = document.getElementById('vola-chart').getContext('2d');
+      return new Chart(ctx, {{
+        type: 'bar',
+        data: {{
+          labels: labels,
+          datasets: [{{ label: 'EU27 %', data: values, backgroundColor: colors }}]
+        }},
+        options: {{
+          indexAxis: 'y',
+          responsive: true,
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{ callbacks: {{ label: function(c) {{ return c.parsed.x + '%'; }} }} }}
+          }},
+          scales: {{
+            x: {{ min: 0, max: 100, ticks: {{ callback: function(v) {{ return v + '%'; }} }} }},
+            y: {{ ticks: {{ font: {{ size: 11 }} }} }}
+          }}
+        }}
+      }});
+    }}
+  </script>
 </body>
 </html>"""
 
