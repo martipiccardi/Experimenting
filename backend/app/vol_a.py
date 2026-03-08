@@ -1356,31 +1356,43 @@ def render_sheet_as_html(wave: str, question: str) -> str:
                     t.start()
                 return html
         # Prefix match: QA1 matches QA1_1, QA1_2, … or QA1.1, QA1.2, …
+        # Only accepted if the label extracted from the sheet content also
+        # starts with the question name (e.g. "QA1.1" starts with "QA1").
         prefix = question + '_'
         prefix_dot = question + '.'
         for fpath, sheets in file_sheets.items():
             sub_sheets = [s for s in sheets
                           if s.startswith(prefix) or s.startswith(prefix_dot)]
-            if sub_sheets:
-                combined_rows = ''
-                fname = os.path.basename(fpath)
-                is_xlsx = fpath.lower().endswith('.xlsx')
-                for sname in sub_sheets:
-                    rows = (_table_rows_xlsx(fpath, sname) if is_xlsx
-                            else _table_rows_xls(fpath, sname))
-                    combined_rows += (
-                        f'<tr><td colspan="30" style="background:#2c5f8a;color:#fff;'
-                        f'font-weight:bold;padding:4px 8px;font-size:12px;">'
-                        f'{_esc(sname)}'
-                        f'<span style="font-weight:normal;font-size:10px;margin-left:12px;opacity:0.85;">'
-                        f'Source: {_esc(fname)}</span>'
-                        f'</td></tr>\n'
-                        + rows
-                    )
-                html = _build_html(combined_rows, wave, question, fname)
-                _html_cache[cache_key] = html
-                _save_html_to_disk(key, question, html)
-                return html
+            if not sub_sheets:
+                continue
+            # Verify via label extracted from cell content
+            uncached = [s for s in sub_sheets if (fpath, s) not in _match_cache]
+            if uncached:
+                _batch_load_match_for_file(fpath, uncached)
+            verified = [s for s in sub_sheets
+                        if _match_cache.get((fpath, s)) and
+                        _match_cache[(fpath, s)][0].upper().startswith(question.upper())]
+            if not verified:
+                continue
+            combined_rows = ''
+            fname = os.path.basename(fpath)
+            is_xlsx = fpath.lower().endswith('.xlsx')
+            for sname in verified:
+                rows = (_table_rows_xlsx(fpath, sname) if is_xlsx
+                        else _table_rows_xls(fpath, sname))
+                combined_rows += (
+                    f'<tr><td colspan="30" style="background:#2c5f8a;color:#fff;'
+                    f'font-weight:bold;padding:4px 8px;font-size:12px;">'
+                    f'{_esc(sname)}'
+                    f'<span style="font-weight:normal;font-size:10px;margin-left:12px;opacity:0.85;">'
+                    f'Source: {_esc(fname)}</span>'
+                    f'</td></tr>\n'
+                    + rows
+                )
+            html = _build_html(combined_rows, wave, question, fname)
+            _html_cache[cache_key] = html
+            _save_html_to_disk(key, question, html)
+            return html
         return _toc_html(wave, question, file_sheets)
 
     # Single sheet — check disk cache first, then render from Excel
