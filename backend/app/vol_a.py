@@ -80,6 +80,36 @@ _HTML_CACHE_DIR = os.environ.get(
     os.path.join(os.path.dirname(VOL_A_DIR), "vol_a_html_cache"),
 )
 
+# Bump this string whenever the HTML rendering changes (chart buttons, layout, etc.).
+# On startup, if the cache version file doesn't match, all cached HTML is wiped
+# so pages are re-rendered with the new code.
+_HTML_CACHE_VERSION = "v3-chart-toggle-2025"
+
+def _check_html_cache_version():
+    """Wipe disk HTML cache if the stored version doesn't match _HTML_CACHE_VERSION."""
+    if not os.path.isdir(_HTML_CACHE_DIR):
+        return
+    version_file = os.path.join(_HTML_CACHE_DIR, ".version")
+    try:
+        stored = open(version_file).read().strip() if os.path.exists(version_file) else ""
+    except Exception:
+        stored = ""
+    if stored == _HTML_CACHE_VERSION:
+        return
+    print(f"[vol_a] HTML cache version mismatch ({stored!r} != {_HTML_CACHE_VERSION!r}) — clearing cache.", flush=True)
+    import glob
+    for f in glob.glob(os.path.join(_HTML_CACHE_DIR, "**", "*.gz"), recursive=True):
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+    try:
+        with open(version_file, "w") as fh:
+            fh.write(_HTML_CACHE_VERSION)
+        print("[vol_a] HTML cache cleared and version file updated.", flush=True)
+    except Exception as e:
+        print(f"[vol_a] Could not write version file: {e}", flush=True)
+
 # In-memory cache: {wave_key: {filepath: [sheet_name, ...]}}
 _wave_sheet_map = None
 _sheet_map_lock = threading.Lock()
@@ -1004,6 +1034,7 @@ def get_wave_sheet_map():
     with _sheet_map_lock:
         if _wave_sheet_map is not None:
             return _wave_sheet_map
+        _check_html_cache_version()  # wipe stale cached HTML if version changed
         _load_overrides()  # load once at startup alongside the sheet map
         cached = _load_sheet_map_from_disk()
         if cached is not None:
