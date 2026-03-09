@@ -83,7 +83,7 @@ _HTML_CACHE_DIR = os.environ.get(
 # Bump this string whenever the HTML rendering changes (chart buttons, layout, etc.).
 # On startup, if the cache version file doesn't match, all cached HTML is wiped
 # so pages are re-rendered with the new code.
-_HTML_CACHE_VERSION = "v11-no-animation-2026"
+_HTML_CACHE_VERSION = "v12-fixed-bar-height-2026"
 
 def _check_html_cache_version():
     """Wipe disk HTML cache if the stored version doesn't match _HTML_CACHE_VERSION."""
@@ -2058,7 +2058,10 @@ function renderVolACharts(tblId,pieId,barId){
     });
   }
   if(barCanvas&&d.countries.length){
-    barCanvas.style.height=Math.max(60,d.countries.length*4)+'px';
+    var barWrap=barCanvas.parentElement;
+    var h=Math.max(60,d.countries.length*4)+'px';
+    barWrap.style.height=h;
+    barCanvas.style.height=h;
     new Chart(barCanvas,{
       type:'bar',
       data:{labels:d.countries,datasets:d.datasets},
@@ -2119,7 +2122,7 @@ def _chart_block(i):
         f'  <div class="chart-section"><p class="chart-label">EU27 aggregate</p>'
         f'  <div style="max-width:480px"><canvas id="pie-{i}"></canvas></div></div>'
         f'  <div class="chart-section"><p class="chart-label">By country</p>'
-        f'  <canvas id="bar-{i}"></canvas></div>'
+        f'  <div id="barwrap-{i}" style="overflow:hidden"><canvas id="bar-{i}"></canvas></div></div>'
         f'</div>'
     )
 
