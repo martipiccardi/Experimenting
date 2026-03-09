@@ -83,7 +83,7 @@ _HTML_CACHE_DIR = os.environ.get(
 # Bump this string whenever the HTML rendering changes (chart buttons, layout, etc.).
 # On startup, if the cache version file doesn't match, all cached HTML is wiped
 # so pages are re-rendered with the new code.
-_HTML_CACHE_VERSION = "v16-bar-15px-2026"
+_HTML_CACHE_VERSION = "v17-eu28-fix-2026"
 
 def _check_html_cache_version():
     """Wipe disk HTML cache if the stored version doesn't match _HTML_CACHE_VERSION."""
@@ -1939,15 +1939,15 @@ function parseVolATable(tblId){
   if(!tbl)return null;
   var rows=Array.from(tbl.querySelectorAll('tr'));
 
-  // 1. Find the header row containing EU27/UE27 column label
+  // 1. Find the header row containing EU27/UE27/EU28/UE28 column label
   var headerRowIdx=-1, eu27PhysIdx=-1, colNames=[];
   for(var i=0;i<rows.length;i++){
     var cells=Array.from(rows[i].querySelectorAll('td'));
     for(var j=0;j<cells.length;j++){
-      if(/EU\\s*27|UE\\s*27/i.test(cells[j].textContent.trim())){
+      if(/EU\\s*\\d+|UE\\s*\\d+/i.test(cells[j].textContent.trim())){
         headerRowIdx=i; eu27PhysIdx=j;
-        // Collect column names: EU27 + all non-empty cells after it in this row
-        colNames=['EU27'];
+        // Collect column names: EU aggregate + all non-empty cells after it in this row
+        colNames=[cells[j].textContent.trim()];
         for(var k=j+1;k<cells.length;k++){
           var nm=cells[k].textContent.trim();
           if(nm) colNames.push(nm);
