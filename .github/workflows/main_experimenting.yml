@@ -31,10 +31,19 @@ jobs:
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
-                
-      # Exclude antenv from artifact — pre-built binaries on ubuntu-latest are
-      # incompatible with Azure's glibc. Oryx builds its own antenv at /antenv
-      # during deployment; startup.sh falls back to a persistent /home/site/venv.
+
+      - name: Download manylinux wheels compatible with Azure
+        run: |
+          pip install --upgrade pip
+          pip download \
+            --platform manylinux_2_17_x86_64 \
+            --python-version 311 \
+            --implementation cp \
+            --abi cp311 \
+            --only-binary=:all: \
+            -r requirements.txt \
+            -d wheels/
+
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
         with:

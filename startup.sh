@@ -3,6 +3,10 @@ export DATA_DIR=/home/site/wwwroot/data
 export XLSX_PATH=/home/site/wwwroot/data/SUPERDATASETCLEANED.xlsx
 export VOL_A_HTML_CACHE_DIR=/home/vol_a_html_cache
 
+VENV=/home/site/venv
+WHEELS=/home/site/wwwroot/wheels
+REQ=/home/site/wwwroot/requirements.txt
+
 _verify() {
     python -c "import uvicorn, fastapi, duckdb, pandas, openpyxl" 2>/dev/null
 }
@@ -15,29 +19,29 @@ _run() {
 # 1. Oryx-built venv (created when SCM_DO_BUILD_DURING_DEPLOYMENT=true)
 if [ -f "/antenv/bin/activate" ]; then
     source /antenv/bin/activate
-    if _verify; then
-        echo "[startup] /antenv OK"
-        _run
-    fi
+    if _verify; then echo "[startup] /antenv OK"; _run; fi
     deactivate 2>/dev/null
 fi
 
 # 2. Persistent venv on /home (survives redeployments)
-if [ -f "/home/site/venv/bin/activate" ]; then
-    source /home/site/venv/bin/activate
-    if _verify; then
-        echo "[startup] /home/site/venv OK"
-        _run
-    fi
-    echo "[startup] /home/site/venv broken — rebuilding"
+if [ -f "$VENV/bin/activate" ]; then
+    source "$VENV/bin/activate"
+    if _verify; then echo "[startup] $VENV OK"; _run; fi
+    echo "[startup] $VENV broken — rebuilding"
     deactivate 2>/dev/null
-    rm -rf /home/site/venv
+    rm -rf "$VENV"
 fi
 
-# 3. Build persistent venv (only when nothing else works)
-echo "[startup] Installing packages into /home/site/venv..."
-python -m venv /home/site/venv
-source /home/site/venv/bin/activate
-pip install --no-cache-dir -q -r /home/site/wwwroot/requirements.txt
-echo "[startup] Done."
+# 3. Install from bundled manylinux wheels (fast, no network, correct glibc)
+echo "[startup] Installing from bundled wheels..."
+python -m venv "$VENV"
+source "$VENV/bin/activate"
+if [ -d "$WHEELS" ]; then
+    pip install --no-cache-dir --no-index --find-links "$WHEELS" -r "$REQ" \
+        && echo "[startup] Wheels install OK" && _run
+fi
+
+# 4. Last resort: pip install from network
+echo "[startup] Falling back to network pip install..."
+pip install --no-cache-dir -q -r "$REQ"
 _run
