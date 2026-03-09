@@ -83,7 +83,7 @@ _HTML_CACHE_DIR = os.environ.get(
 # Bump this string whenever the HTML rendering changes (chart buttons, layout, etc.).
 # On startup, if the cache version file doesn't match, all cached HTML is wiped
 # so pages are re-rendered with the new code.
-_HTML_CACHE_VERSION = "v12-fixed-bar-height-2026"
+_HTML_CACHE_VERSION = "v13-multi-charts-bar-5px-2026"
 
 def _check_html_cache_version():
     """Wipe disk HTML cache if the stored version doesn't match _HTML_CACHE_VERSION."""
@@ -1440,23 +1440,14 @@ def render_sheet_as_html(wave: str, question: str) -> str:
             )
             t.start()
     else:
-        # Multiple matching sheets — concatenate with label + source dividers
-        combined_rows = ''
+        # Multiple matching sheets — render each as its own section with its own chart
         main_filename = os.path.basename(matches[0][0])
+        sections = []
         for fpath, sheet, label in matches:
-            fname = os.path.basename(fpath)
             rows = (_table_rows_xlsx(fpath, sheet) if fpath.lower().endswith('.xlsx')
                     else _table_rows_xls(fpath, sheet))
-            combined_rows += (
-                f'<tr><td colspan="30" style="background:#2c5f8a;color:#fff;'
-                f'font-weight:bold;padding:4px 8px;font-size:12px;">'
-                f'{_esc(label)}'
-                f'<span style="font-weight:normal;font-size:10px;margin-left:12px;opacity:0.85;">'
-                f'Source: {_esc(fname)}</span>'
-                f'</td></tr>\n'
-                + rows
-            )
-        html = _build_html(combined_rows, wave, question, main_filename)
+            sections.append((label, rows))
+        html = _build_html_multi(sections, wave, question, main_filename)
 
     _html_cache[cache_key] = html
     return html
@@ -2059,7 +2050,7 @@ function renderVolACharts(tblId,pieId,barId){
   }
   if(barCanvas&&d.countries.length){
     var barWrap=barCanvas.parentElement;
-    var h=Math.max(60,d.countries.length*4)+'px';
+    var h=Math.max(80,d.countries.length*5)+'px';
     barWrap.style.height=h;
     barCanvas.style.height=h;
     new Chart(barCanvas,{
