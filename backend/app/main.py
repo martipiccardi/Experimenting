@@ -293,8 +293,13 @@ def download(req: DownloadRequest):
 @app.get("/api/volume-a")
 def volume_a(wave: str = Query(...), question: str = Query(...)):
     from fastapi.responses import HTMLResponse
-    from vol_a import render_sheet_as_html
-    html = render_sheet_as_html(wave, question)
+    from vol_a import render_sheet_as_html, _error_html
+    try:
+        html = render_sheet_as_html(wave, question)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        html = _error_html(f"Error rendering Volume A for {wave} / {question}: {e}")
     return HTMLResponse(content=html)
 
 

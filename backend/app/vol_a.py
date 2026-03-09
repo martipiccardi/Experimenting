@@ -2123,7 +2123,7 @@ def _toc_html(wave: str, question: str, file_sheets: dict) -> str:
             q_enc = urllib.parse.quote(label)  # link uses label so text matching works on click
             href = f'/api/volume-a?wave={wave_enc}&question={q_enc}'
             links += (
-                f'<li><a href="{href}" target="_blank" '
+                f'<li><a href="{href}" '
                 f'style="color:#2c5f8a;text-decoration:none;">'
                 f'{_esc(label)}</a></li>\n'
             )
