@@ -3,24 +3,46 @@ export DATA_DIR=/home/site/wwwroot/data
 export XLSX_PATH=/home/site/wwwroot/data/SUPERDATASETCLEANED.xlsx
 export VOL_A_HTML_CACHE_DIR=/home/vol_a_html_cache
 
-# 1. Oryx-built venv (SCM_DO_BUILD_DURING_DEPLOYMENT=true creates this)
+VENV=/home/site/venv
+REQ=/home/site/wwwroot/requirements.txt
+
+_run() {
+    cd /home/site/wwwroot
+    exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+}
+
+_verify() {
+    python -c "import uvicorn, fastapi, duckdb, pandas, openpyxl" 2>/dev/null
+}
+
+# 1. Oryx-built venv (created when SCM_DO_BUILD_DURING_DEPLOYMENT=true)
 if [ -f "/antenv/bin/activate" ]; then
-    echo "[startup] Using Oryx antenv at /antenv"
+    echo "[startup] Trying Oryx /antenv..."
     source /antenv/bin/activate
-
-# 2. Persistent venv on /home (survives redeployments, built once)
-elif [ -f "/home/site/venv/bin/activate" ]; then
-    echo "[startup] Using persistent venv at /home/site/venv"
-    source /home/site/venv/bin/activate
-
-# 3. First run: build a persistent venv (only happens once per container lifetime)
-else
-    echo "[startup] No venv found — creating /home/site/venv and installing packages..."
-    python -m venv /home/site/venv
-    source /home/site/venv/bin/activate
-    pip install --no-cache-dir -q -r /home/site/wwwroot/requirements.txt
-    echo "[startup] Done."
+    if _verify; then
+        echo "[startup] Oryx antenv OK"
+        _run
+    fi
+    echo "[startup] Oryx antenv broken — falling back"
+    deactivate 2>/dev/null
 fi
 
-cd /home/site/wwwroot
-exec python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+# 2. Persistent venv — verify all key packages are importable
+if [ -f "$VENV/bin/activate" ]; then
+    source "$VENV/bin/activate"
+    if _verify; then
+        echo "[startup] Persistent venv OK"
+        _run
+    fi
+    echo "[startup] Persistent venv incomplete — rebuilding..."
+    deactivate 2>/dev/null
+fi
+
+# 3. Build persistent venv from scratch
+echo "[startup] Creating $VENV and installing packages..."
+rm -rf "$VENV"
+python -m venv "$VENV"
+source "$VENV/bin/activate"
+pip install --no-cache-dir -q -r "$REQ"
+echo "[startup] Install complete"
+_run
