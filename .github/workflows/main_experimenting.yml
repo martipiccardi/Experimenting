@@ -71,7 +71,7 @@ jobs:
 
       - name: Enable Oryx build during deployment
         run: |
-          RG=$(az webapp show --name Experimenting --query resourceGroup -o tsv)
+          RG=$(az webapp list --query "[?name=='Experimenting'].resourceGroup" -o tsv)
           az webapp config appsettings set --name Experimenting --resource-group "$RG" \
             --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
 
