@@ -83,7 +83,7 @@ _HTML_CACHE_DIR = os.environ.get(
 # Bump this string whenever the HTML rendering changes (chart buttons, layout, etc.).
 # On startup, if the cache version file doesn't match, all cached HTML is wiped
 # so pages are re-rendered with the new code.
-_HTML_CACHE_VERSION = "v4-pie-stacked-bar-2025"
+_HTML_CACHE_VERSION = "v5-grid-pct-parser-2025"
 
 def _check_html_cache_version():
     """Wipe disk HTML cache if the stored version doesn't match _HTML_CACHE_VERSION."""
@@ -1922,39 +1922,114 @@ _CHART_JS = """
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
 var PALETTE=['#2c5f8a','#27ae60','#e67e22','#c0392b','#95a5a6','#3d7ab5','#82e0aa','#f39c12','#8e44ad','#d35400','#1abc9c','#e74c3c'];
-var FRENCH_RE=/[\\u00c0-\\u00d6\\u00d8-\\u00f6\\u00f8-\\u00ff]/i;
+
+/* Build a virtual column grid so that rowspan/colspan merges are handled
+   correctly. Returns an array of rows; each row is an array of {text, logCol}.
+   physToLog[rowIdx][physIdx] = logicalColumnIndex */
+function buildTableGrid(tbl){
+  var rows=Array.from(tbl.querySelectorAll('tr'));
+  var grid=[];
+  var pending={};  // logCol -> remaining rowspan rows
+  rows.forEach(function(tr){
+    var tds=Array.from(tr.querySelectorAll('td,th'));
+    var rowCells=[];
+    var logCol=0;
+    tds.forEach(function(td){
+      // Advance past columns still covered by a rowspan from above
+      while(pending[logCol]&&pending[logCol]>0){pending[logCol]--;logCol++;}
+      var rs=parseInt(td.getAttribute('rowspan')||'1');
+      var cs=parseInt(td.getAttribute('colspan')||'1');
+      var text=td.textContent.trim();
+      for(var c=0;c<cs;c++){
+        rowCells.push({text:(c===0?text:''),logCol:logCol+c});
+        if(rs>1) pending[logCol+c]=(pending[logCol+c]||0)+rs-1;
+      }
+      logCol+=cs;
+    });
+    grid.push(rowCells);
+  });
+  return grid;
+}
+
+/* Parse a cell text as a percentage value (0-100 integer).
+   Accepts "7%"->7, "0.07"->7, decimal 0<v<1.
+   Returns null for counts (integers without %) or unparseable text. */
+function parsePct(text){
+  var t=(text||'').trim();
+  if(!t||t==='-')return null;
+  if(t.charAt(t.length-1)==='%'){
+    var n=parseFloat(t);
+    return isNaN(n)?null:Math.round(n);
+  }
+  var n=parseFloat(t);
+  if(isNaN(n)||n<0)return null;
+  // Decimal 0..1 (must have a decimal point to avoid mistaking count "1" for 100%)
+  if(t.indexOf('.')!==-1&&n<=1) return Math.round(n*100);
+  return null;  // integer without % = count, skip
+}
 
 function parseVolATable(tblId){
   var tbl=document.getElementById(tblId);
   if(!tbl)return null;
-  var rows=Array.from(tbl.querySelectorAll('tr'));
-  var eu27Col=-1,headerRowIdx=-1,colHeaders=[];
-  for(var i=0;i<rows.length;i++){
-    var cells=Array.from(rows[i].querySelectorAll('td'));
-    var idx=cells.findIndex(function(c){return /EU\\s*27|UE\\s*27/i.test(c.textContent.trim());});
-    if(idx!==-1){
-      eu27Col=idx; headerRowIdx=i;
-      for(var c=1;c<cells.length;c++){var n=cells[c].textContent.trim();if(n)colHeaders.push({idx:c,name:n});}
-      break;
+  var grid=buildTableGrid(tbl);
+  if(!grid.length)return null;
+
+  // Find the header row: the row that contains a cell with EU27/UE27 label
+  var eu27LogCol=-1,headerRowIdx=-1;
+  for(var i=0;i<grid.length;i++){
+    for(var j=0;j<grid[i].length;j++){
+      if(/EU\\s*27|UE\\s*27/i.test(grid[i][j].text)){
+        eu27LogCol=grid[i][j].logCol; headerRowIdx=i; break;
+      }
     }
+    if(headerRowIdx!==-1)break;
   }
   if(headerRowIdx===-1)return null;
+
+  // Build colHeaders: all non-empty header cells after EU27 (country codes)
+  var colHeaders=[];
+  grid[headerRowIdx].forEach(function(cell){
+    if(cell.logCol>eu27LogCol&&cell.text) colHeaders.push({logCol:cell.logCol,name:cell.text});
+  });
+
+  // Build a lookup: for a given row, get text at a specific logical column
+  function logColText(rowCells,lc){
+    for(var k=0;k<rowCells.length;k++) if(rowCells[k].logCol===lc) return rowCells[k].text;
+    return '';
+  }
+
+  // Find the label column: the leftmost column that contains answer-option labels
+  // We detect it as the first logCol (< eu27LogCol) where data rows have non-numeric text
+  var labelLogCol=0;
+  // Scan a few data rows to find which logCol has the English answer labels
+  for(var r=headerRowIdx+1;r<Math.min(headerRowIdx+20,grid.length);r++){
+    var row=grid[r];
+    for(var j=0;j<row.length;j++){
+      var c=row[j];
+      if(c.logCol<eu27LogCol&&c.text&&!/^\\d/.test(c.text)&&!/^[0-9.]+%?$/.test(c.text)){
+        labelLogCol=c.logCol; break;
+      }
+    }
+  }
+
   var answers=[];
-  for(var r=headerRowIdx+1;r<rows.length;r++){
-    var cells=Array.from(rows[r].querySelectorAll('td'));
-    if(!cells.length)continue;
-    var label=cells[0]?cells[0].textContent.trim():'';
-    if(!label||/^total/i.test(label)||FRENCH_RE.test(label))continue;
-    var eu27Raw=cells[eu27Col]?cells[eu27Col].textContent.trim():'';
-    var eu27Val=parseFloat(eu27Raw);
-    if(isNaN(eu27Val)||eu27Val<0||eu27Val>1)continue;
+  for(var r=headerRowIdx+1;r<grid.length;r++){
+    var row=grid[r];
+    if(!row.length)continue;
+    var label=logColText(row,labelLogCol);
+    if(!label)continue;
+    // Skip total/subtotal rows and non-English (French) rows with accented chars
+    if(/^total/i.test(label))continue;
+    if(/[\\u00c0-\\u00d6\\u00d8-\\u00f6\\u00f8-\\u00ff]/i.test(label))continue;
+    var eu27Raw=logColText(row,eu27LogCol);
+    var eu27Pct=parsePct(eu27Raw);
+    if(eu27Pct===null)continue;  // count row or unparseable
     var cVals={};
     colHeaders.forEach(function(col){
-      var raw=cells[col.idx]?cells[col.idx].textContent.trim():'';
-      var v=parseFloat(raw);
-      cVals[col.name]=isNaN(v)?null:Math.round(v*100);
+      var raw=logColText(row,col.logCol);
+      cVals[col.name]=parsePct(raw);
     });
-    answers.push({label:label,eu27:Math.round(eu27Val*100),cVals:cVals});
+    answers.push({label:label,eu27:eu27Pct,cVals:cVals});
   }
   if(!answers.length)return null;
   var countries=colHeaders.filter(function(c){return !/EU\\s*27|UE\\s*27/i.test(c.name);}).map(function(c){return c.name;});
