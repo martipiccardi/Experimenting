@@ -83,7 +83,7 @@ _HTML_CACHE_DIR = os.environ.get(
 # Bump this string whenever the HTML rendering changes (chart buttons, layout, etc.).
 # On startup, if the cache version file doesn't match, all cached HTML is wiped
 # so pages are re-rendered with the new code.
-_HTML_CACHE_VERSION = "v5-grid-pct-parser-2025"
+_HTML_CACHE_VERSION = "v6-content-based-parser-2025"
 
 def _check_html_cache_version():
     """Wipe disk HTML cache if the stored version doesn't match _HTML_CACHE_VERSION."""
@@ -1920,126 +1920,112 @@ def _cell_style(col_idx: int, val: str) -> str:
 
 _CHART_JS = """
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>
+Chart.register(ChartDataLabels);
 var PALETTE=['#2c5f8a','#27ae60','#e67e22','#c0392b','#95a5a6','#3d7ab5','#82e0aa','#f39c12','#8e44ad','#d35400','#1abc9c','#e74c3c'];
 
-/* Build a virtual column grid so that rowspan/colspan merges are handled
-   correctly. Returns an array of rows; each row is an array of {text, logCol}.
-   physToLog[rowIdx][physIdx] = logicalColumnIndex */
-function buildTableGrid(tbl){
-  var rows=Array.from(tbl.querySelectorAll('tr'));
-  var grid=[];
-  var pending={};  // logCol -> remaining rowspan rows
-  rows.forEach(function(tr){
-    var tds=Array.from(tr.querySelectorAll('td,th'));
-    var rowCells=[];
-    var logCol=0;
-    tds.forEach(function(td){
-      // Advance past columns still covered by a rowspan from above
-      while(pending[logCol]&&pending[logCol]>0){pending[logCol]--;logCol++;}
-      var rs=parseInt(td.getAttribute('rowspan')||'1');
-      var cs=parseInt(td.getAttribute('colspan')||'1');
-      var text=td.textContent.trim();
-      for(var c=0;c<cs;c++){
-        rowCells.push({text:(c===0?text:''),logCol:logCol+c});
-        if(rs>1) pending[logCol+c]=(pending[logCol+c]||0)+rs-1;
-      }
-      logCol+=cs;
-    });
-    grid.push(rowCells);
-  });
-  return grid;
-}
-
-/* Parse a cell text as a percentage value (0-100 integer).
-   Accepts "7%"->7, "0.07"->7, decimal 0<v<1.
-   Returns null for counts (integers without %) or unparseable text. */
+/* Parse cell text as integer percentage (0-100), or null if it's a count/invalid.
+   "7%" -> 7,  "0.07" -> 7,  "7" -> null (ambiguous count),  "665" -> null */
 function parsePct(text){
   var t=(text||'').trim();
-  if(!t||t==='-')return null;
+  if(!t||t==='-'||t==='*')return null;
   if(t.charAt(t.length-1)==='%'){
     var n=parseFloat(t);
     return isNaN(n)?null:Math.round(n);
   }
   var n=parseFloat(t);
   if(isNaN(n)||n<0)return null;
-  // Decimal 0..1 (must have a decimal point to avoid mistaking count "1" for 100%)
-  if(t.indexOf('.')!==-1&&n<=1) return Math.round(n*100);
-  return null;  // integer without % = count, skip
+  if(t.indexOf('.')!==-1&&n<=1) return Math.round(n*100); // decimal proportion e.g. 0.07
+  return null; // integer without % = count
 }
 
+/* Content-based parser: finds "pct rows" by scanning for cells ending with "%".
+   This avoids all rowspan/colspan column-index issues — we locate data by
+   content, not by physical or logical column position. */
 function parseVolATable(tblId){
   var tbl=document.getElementById(tblId);
   if(!tbl)return null;
-  var grid=buildTableGrid(tbl);
-  if(!grid.length)return null;
+  var rows=Array.from(tbl.querySelectorAll('tr'));
 
-  // Find the header row: the row that contains a cell with EU27/UE27 label
-  var eu27LogCol=-1,headerRowIdx=-1;
-  for(var i=0;i<grid.length;i++){
-    for(var j=0;j<grid[i].length;j++){
-      if(/EU\\s*27|UE\\s*27/i.test(grid[i][j].text)){
-        eu27LogCol=grid[i][j].logCol; headerRowIdx=i; break;
+  // 1. Find the header row containing EU27/UE27 column label
+  var headerRowIdx=-1, eu27PhysIdx=-1, colNames=[];
+  for(var i=0;i<rows.length;i++){
+    var cells=Array.from(rows[i].querySelectorAll('td'));
+    for(var j=0;j<cells.length;j++){
+      if(/EU\\s*27|UE\\s*27/i.test(cells[j].textContent.trim())){
+        headerRowIdx=i; eu27PhysIdx=j;
+        // Collect column names: EU27 + all non-empty cells after it in this row
+        colNames=['EU27'];
+        for(var k=j+1;k<cells.length;k++){
+          var nm=cells[k].textContent.trim();
+          if(nm) colNames.push(nm);
+        }
+        break;
       }
     }
     if(headerRowIdx!==-1)break;
   }
-  if(headerRowIdx===-1)return null;
+  if(headerRowIdx===-1||!colNames.length)return null;
 
-  // Build colHeaders: all non-empty header cells after EU27 (country codes)
-  var colHeaders=[];
-  grid[headerRowIdx].forEach(function(cell){
-    if(cell.logCol>eu27LogCol&&cell.text) colHeaders.push({logCol:cell.logCol,name:cell.text});
-  });
+  // 2. Scan data rows: a "pct row" is one where we can find %-ending cells.
+  //    We locate the start of the data section by finding the first cell with "%".
+  //    Everything before it in the same row = label candidates.
+  var answers=[], seenLabels={};
+  for(var r=headerRowIdx+1;r<rows.length;r++){
+    var cells=Array.from(rows[r].querySelectorAll('td'));
+    if(!cells.length)continue;
 
-  // Build a lookup: for a given row, get text at a specific logical column
-  function logColText(rowCells,lc){
-    for(var k=0;k<rowCells.length;k++) if(rowCells[k].logCol===lc) return rowCells[k].text;
-    return '';
-  }
+    // Find first cell ending with "%" — that is the EU27 pct value
+    var dataStart=-1;
+    for(var j=0;j<cells.length;j++){
+      var t=cells[j].textContent.trim();
+      if(t.charAt(t.length-1)==='%'){dataStart=j;break;}
+    }
+    if(dataStart===-1)continue; // count row or empty — skip
 
-  // Find the label column: the leftmost column that contains answer-option labels
-  // We detect it as the first logCol (< eu27LogCol) where data rows have non-numeric text
-  var labelLogCol=0;
-  // Scan a few data rows to find which logCol has the English answer labels
-  for(var r=headerRowIdx+1;r<Math.min(headerRowIdx+20,grid.length);r++){
-    var row=grid[r];
-    for(var j=0;j<row.length;j++){
-      var c=row[j];
-      if(c.logCol<eu27LogCol&&c.text&&!/^\\d/.test(c.text)&&!/^[0-9.]+%?$/.test(c.text)){
-        labelLogCol=c.logCol; break;
+    // Label: first non-empty, non-numeric cell BEFORE the data section
+    var label='';
+    for(var j=0;j<dataStart;j++){
+      var t=cells[j].textContent.trim();
+      if(t&&!/^[\\d\\s\\-]+$/.test(t)){label=t;break;}
+    }
+    // If label is empty (rowspan covers it), look at the previous row's label
+    if(!label&&r>headerRowIdx+1){
+      var prev=Array.from(rows[r-1].querySelectorAll('td'));
+      for(var j=0;j<prev.length;j++){
+        var t=prev[j].textContent.trim();
+        if(t&&!/^[\\d\\s\\-]+$/.test(t)&&!/^[0-9.]+%$/.test(t)){label=t;break;}
       }
     }
-  }
+    if(!label||/^total/i.test(label))continue;
+    if(seenLabels[label])continue; // deduplicate (summary section repeats rows)
+    seenLabels[label]=1;
 
-  var answers=[];
-  for(var r=headerRowIdx+1;r<grid.length;r++){
-    var row=grid[r];
-    if(!row.length)continue;
-    var label=logColText(row,labelLogCol);
-    if(!label)continue;
-    // Skip total/subtotal rows and non-English (French) rows with accented chars
-    if(/^total/i.test(label))continue;
-    if(/[\\u00c0-\\u00d6\\u00d8-\\u00f6\\u00f8-\\u00ff]/i.test(label))continue;
-    var eu27Raw=logColText(row,eu27LogCol);
-    var eu27Pct=parsePct(eu27Raw);
-    if(eu27Pct===null)continue;  // count row or unparseable
+    // Collect data values starting from dataStart; pad with null for missing cells
+    var dataVals=[];
+    for(var j=dataStart;j<cells.length;j++){
+      dataVals.push(parsePct(cells[j].textContent.trim()));
+    }
+    var eu27Pct=dataVals[0];
+    if(eu27Pct===null)continue;
+
+    // Map country values: colNames[1..] -> dataVals[1..]
     var cVals={};
-    colHeaders.forEach(function(col){
-      var raw=logColText(row,col.logCol);
-      cVals[col.name]=parsePct(raw);
-    });
+    for(var ci=1;ci<colNames.length&&ci<dataVals.length+1;ci++){
+      cVals[colNames[ci]]=dataVals[ci] !== undefined ? dataVals[ci] : null;
+    }
     answers.push({label:label,eu27:eu27Pct,cVals:cVals});
   }
   if(!answers.length)return null;
-  var countries=colHeaders.filter(function(c){return !/EU\\s*27|UE\\s*27/i.test(c.name);}).map(function(c){return c.name;});
+  var countries=colNames.slice(1).filter(function(c){return !/EU\\s*27|UE\\s*27/i.test(c);});
   return{
     answerLabels:answers.map(function(a){return a.label;}),
     eu27Data:answers.map(function(a){return a.eu27;}),
     countries:countries,
     datasets:answers.map(function(a,i){return{
       label:a.label,
-      data:countries.map(function(c){return a.cVals[c]!==null&&a.cVals[c]!==undefined?a.cVals[c]:0;}),
+      data:countries.map(function(c){var v=a.cVals[c];return(v!==null&&v!==undefined)?v:0;}),
       backgroundColor:PALETTE[i%PALETTE.length]
     };})
   };
@@ -2058,30 +2044,35 @@ function renderVolACharts(tblId,pieId,barId){
     new Chart(pieCanvas,{
       type:'pie',
       data:{
-        labels:d.answerLabels.map(function(l,i){return l+' ('+d.eu27Data[i]+'%)';}),
+        labels:d.answerLabels,
         datasets:[{data:d.eu27Data,backgroundColor:PALETTE.slice(0,d.answerLabels.length)}]
       },
       options:{responsive:true,maintainAspectRatio:true,
-        plugins:{legend:{position:'right',labels:{font:{size:10},boxWidth:12}},
-          tooltip:{callbacks:{label:function(c){return c.label;}}}
+        plugins:{
+          legend:{position:'right',labels:{font:{size:10},boxWidth:12}},
+          tooltip:{callbacks:{label:function(c){return c.label+': '+c.parsed+'%';}}},
+          datalabels:{color:'#fff',font:{size:10,weight:'bold'},
+            formatter:function(v){return v>4?v+'%':'';}}
         }
       }
     });
   }
   if(barCanvas&&d.countries.length){
-    barCanvas.style.height=Math.max(300,d.countries.length*18)+'px';
+    barCanvas.style.height=Math.max(200,d.countries.length*13)+'px';
     new Chart(barCanvas,{
       type:'bar',
       data:{labels:d.countries,datasets:d.datasets},
       options:{
         indexAxis:'y',responsive:true,maintainAspectRatio:false,
         scales:{
-          x:{stacked:true,max:100,ticks:{callback:function(v){return v+'%';},font:{size:9}}},
-          y:{stacked:true,ticks:{font:{size:9}}}
+          x:{stacked:true,max:100,ticks:{callback:function(v){return v+'%';},font:{size:8}}},
+          y:{stacked:true,ticks:{font:{size:8}}}
         },
         plugins:{
-          legend:{position:'top',labels:{font:{size:10},boxWidth:12}},
-          tooltip:{callbacks:{label:function(c){return c.dataset.label+': '+c.parsed.x+'%';}}}
+          legend:{position:'top',labels:{font:{size:9},boxWidth:10}},
+          tooltip:{callbacks:{label:function(c){return c.dataset.label+': '+c.parsed.x+'%';}}},
+          datalabels:{color:'#fff',font:{size:8},anchor:'center',align:'center',
+            formatter:function(v){return v>6?v+'%':'';}}
         }
       }
     });
