@@ -69,18 +69,10 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_9821649E383544348BDA6BFA0C8A710A }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F25BF053A3C94442A6790252A13913CC }}
 
-      - name: Ensure Oryx build is enabled
-        run: |
-          az webapp config appsettings set \
-            --name Experimenting \
-            --resource-group $(az webapp list --query "[?name=='Experimenting'].resourceGroup" -o tsv) \
-            --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
-
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
           app-name: 'Experimenting'
           slot-name: 'Production'
-          startup-command: 'bash /home/site/wwwroot/startup.sh'
           
