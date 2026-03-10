@@ -106,7 +106,7 @@ export default function SearchView() {
   }
 
   const handleShowVolA = (wave, question) => {
-    setSearchParams({ show_vol_a: `${wave}___${question}` })
+    window.open(`?show_vol_a=${encodeURIComponent(`${wave}___${question}`)}`, '_blank')
   }
 
   const handleDownload = async (fmt) => {

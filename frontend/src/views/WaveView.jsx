@@ -35,7 +35,7 @@ export default function WaveView() {
   }, [showWaveRaw])
 
   const handleShowVolA = (wave, question) => {
-    setSearchParams({ show_vol_a: `${wave}___${question}` })
+    window.open(`?show_vol_a=${encodeURIComponent(`${wave}___${question}`)}`, '_blank')
   }
 
   const handleBack = () => {
