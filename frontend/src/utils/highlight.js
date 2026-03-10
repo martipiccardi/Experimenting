@@ -1,3 +1,8 @@
+export function stripCaretCodes(text) {
+  if (!text) return text
+  return text.replace(/\^[^^]*\^/g, '')
+}
+
 function escapeHtml(text) {
   return text
     .replace(/&/g, '&amp;')
@@ -11,6 +16,7 @@ function escapeRegex(text) {
 }
 
 export function highlightText(text, exactTerms, expandedTerms) {
+  text = stripCaretCodes(text)
   if (!text || (!exactTerms?.length && !expandedTerms?.length)) {
     return escapeHtml(text || '')
   }

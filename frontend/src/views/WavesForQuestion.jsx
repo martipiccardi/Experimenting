@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { fetchWavesForQuestion } from '../api/client'
+import { stripCaretCodes } from '../utils/highlight'
 
 export default function WavesForQuestion() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -27,7 +28,7 @@ export default function WavesForQuestion() {
       <button className="back-link" onClick={goBack}>Back to search</button>
 
       <h1>Waves containing this question</h1>
-      <div className="question-highlight-box">{question}</div>
+      <div className="question-highlight-box">{stripCaretCodes(question)}</div>
 
       {loading ? (
         <div className="loading">Loading…</div>
