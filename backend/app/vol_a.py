@@ -127,15 +127,28 @@ _text_index = None
 # Avoids the long upfront build time of a full sheet scan.
 _sheet_eng_cache: dict = {}
 
-# HTML is served directly from the disk cache (gzip reads) to keep memory bounded.
-# This null-cache silently discards all writes while keeping the existing code paths
-# intact — prevents unbounded RAM growth that caused OOM kills on Azure.
-class _NullCache:
-    def __contains__(self, key): return False
-    def __getitem__(self, key): raise KeyError(key)
-    def __setitem__(self, key, value): pass
+# Bounded LRU cache for rendered HTML pages.
+# Keeps the 80 most-recently-accessed pages in memory (fast),
+# evicts older ones automatically so RAM stays bounded (~24 MB max at ~300 KB/page).
+# Disk cache (gzip) is used for persistence across restarts.
+from collections import OrderedDict as _OD
 
-_html_cache = _NullCache()
+class _LRUCache:
+    def __init__(self, maxsize=80):
+        self._d = _OD()
+        self._max = maxsize
+    def __contains__(self, k): return k in self._d
+    def __getitem__(self, k):
+        self._d.move_to_end(k)
+        return self._d[k]
+    def __setitem__(self, k, v):
+        if k in self._d:
+            self._d.move_to_end(k)
+        self._d[k] = v
+        if len(self._d) > self._max:
+            self._d.popitem(last=False)
+
+_html_cache = _LRUCache(maxsize=80)
 
 # Cache: {(fpath, sheet_name) -> (label, normalized_text) | None}
 # label = question code extracted from the Excel cell (e.g. 'QB1', 'QA3')
@@ -1064,7 +1077,7 @@ def reload_wave_file_map():
     _text_index = _build_text_index(_wave_sheet_map)
     _save_text_index(_text_index)
     _sheet_eng_cache = {}
-    _html_cache = _NullCache()
+    _html_cache = _LRUCache(maxsize=80)
     _match_cache = {}
     _clear_html_disk_cache()
     return _wave_sheet_map
