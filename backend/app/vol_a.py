@@ -1207,6 +1207,7 @@ def prerender_all_sheets():
             if not sheets_to_render:
                 continue
 
+            import time as _time; _time.sleep(0.05)  # yield between files so user requests aren't starved
             try:
                 if ext == 'xlsx':
                     if not _OPENPYXL_OK:
