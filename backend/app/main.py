@@ -302,6 +302,15 @@ def vol_a_status():
     }
 
 
+@app.get("/api/prerender-status")
+def prerender_status():
+    """How far along the background Vol A prerender is."""
+    from vol_a import _prerender_status
+    s = _prerender_status
+    pct = round(100 * s["files_done"] / s["total_files"]) if s["total_files"] else 0
+    return {**s, "percent": pct}
+
+
 @app.post("/api/reload-vol-a")
 def reload_vol_a():
     """Force-rebuild the Volume A file map (call after uploading new files via Kudu)."""

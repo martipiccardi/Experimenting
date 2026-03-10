@@ -1170,6 +1170,10 @@ def _background_render_file(fpath: str, wave_key: str, sheet_names: list) -> Non
         pass
 
 
+# Prerender progress — readable from /api/prerender-status
+_prerender_status = {"done": False, "files_done": 0, "total_files": 0, "rendered": 0, "disk_hits": 0}
+
+
 def prerender_all_sheets():
     """Pre-render every sheet in every Vol A file into _html_cache and disk.
 
@@ -1185,9 +1189,13 @@ def prerender_all_sheets():
     rendered = 0
     disk_hits = 0
     skipped = 0
+    total_files = sum(len(v) for v in sheet_map.values())
+    files_done = 0
+    _prerender_status.update({"done": False, "files_done": 0, "total_files": total_files, "rendered": 0, "disk_hits": 0})
 
     for wave_key, file_sheets in sheet_map.items():
         for fpath, sheet_names in file_sheets.items():
+            files_done += 1
             fname = os.path.basename(fpath)
             ext = fpath.lower().rsplit('.', 1)[-1]
 
@@ -1207,6 +1215,9 @@ def prerender_all_sheets():
             if not sheets_to_render:
                 continue
 
+            _prerender_status.update({"files_done": files_done, "rendered": rendered, "disk_hits": disk_hits})
+            if files_done % 20 == 0 or files_done == total_files:
+                print(f"[vol_a] Prerender progress: {files_done}/{total_files} files, {rendered} rendered, {disk_hits} from disk", flush=True)
             import time as _time; _time.sleep(0.005)  # brief yield so user requests aren't starved
             try:
                 if ext == 'xlsx':
@@ -1236,6 +1247,7 @@ def prerender_all_sheets():
             except Exception:
                 skipped += 1
 
+    _prerender_status.update({"done": True, "files_done": files_done, "rendered": rendered, "disk_hits": disk_hits})
     return rendered, disk_hits, skipped
 
 
