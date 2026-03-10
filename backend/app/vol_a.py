@@ -83,7 +83,7 @@ _HTML_CACHE_DIR = os.environ.get(
 # Bump this string whenever the HTML rendering changes (chart buttons, layout, etc.).
 # On startup, if the cache version file doesn't match, all cached HTML is wiped
 # so pages are re-rendered with the new code.
-_HTML_CACHE_VERSION = "v17-eu28-fix-2026"
+_HTML_CACHE_VERSION = "v18-no-mem-cache-2026"
 
 def _check_html_cache_version():
     """Wipe disk HTML cache if the stored version doesn't match _HTML_CACHE_VERSION."""
@@ -127,8 +127,15 @@ _text_index = None
 # Avoids the long upfront build time of a full sheet scan.
 _sheet_eng_cache: dict = {}
 
-# Cache: {(wave_key, question) -> rendered HTML string}
-_html_cache = {}
+# HTML is served directly from the disk cache (gzip reads) to keep memory bounded.
+# This null-cache silently discards all writes while keeping the existing code paths
+# intact — prevents unbounded RAM growth that caused OOM kills on Azure.
+class _NullCache:
+    def __contains__(self, key): return False
+    def __getitem__(self, key): raise KeyError(key)
+    def __setitem__(self, key, value): pass
+
+_html_cache = _NullCache()
 
 # Cache: {(fpath, sheet_name) -> (label, normalized_text) | None}
 # label = question code extracted from the Excel cell (e.g. 'QB1', 'QA3')
@@ -1057,7 +1064,7 @@ def reload_wave_file_map():
     _text_index = _build_text_index(_wave_sheet_map)
     _save_text_index(_text_index)
     _sheet_eng_cache = {}
-    _html_cache = {}
+    _html_cache = _NullCache()
     _match_cache = {}
     _clear_html_disk_cache()
     return _wave_sheet_map
